@@ -6,7 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "generate:abi": "cd .. && npx ts-node scripts/generateAbi.ts",
+    "update:addresses": "cd .. && npx ts-node scripts/updateFrontendAddresses.ts",
+    "deploy:contracts": "cd .. && npx hardhat run scripts/deploy.ts --network localhost"
   },
   "dependencies": {
     "@ant-design/nextjs-registry": "^1.0.2",

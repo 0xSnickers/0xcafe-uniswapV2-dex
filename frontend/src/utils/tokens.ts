@@ -78,3 +78,11 @@ export function getTokenIcon(token: Token): string {
   
   return iconMap[token.symbol] || '🪙';
 } 
+
+// 获取代币的显示名称（包含网络信息）
+export function toFixedValue(_val: string, _fixed: number=6): string {
+  if(isNaN(Number(_val))) {
+    return _val;
+  }
+  return Number(_val).toFixed(_fixed);
+}

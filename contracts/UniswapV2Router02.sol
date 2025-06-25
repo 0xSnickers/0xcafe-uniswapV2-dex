@@ -60,7 +60,18 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             }
         }
     }
-    
+    // @notice 添加流动性
+    // @param tokenA 代币A地址
+    // @param tokenB 代币B地址
+    // @param amountADesired 代币A期望数量
+    // @param amountBDesired 代币B期望数量
+    // @param amountAMin 代币A最小数量
+    // @param amountBMin 代币B最小数量
+    // @param to 接收流动性地址
+    // @param deadline 交易期限
+    // @return amountA 实际添加的代币A数量
+    // @return amountB 实际添加的代币B数量
+    // @return liquidity 添加的流动性数量
     function addLiquidity(
         address tokenA,
         address tokenB,
@@ -77,7 +88,16 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
         liquidity = IUniswapV2Pair(pair).mint(to);
     }
-    
+    // @notice 添加流动性ETH
+    // @param token 代币地址
+    // @param amountTokenDesired 代币期望数量
+    // @param amountTokenMin 代币最小数量
+    // @param amountETHMin ETH最小数量
+    // @param to 接收流动性地址
+    // @param deadline 交易期限
+    // @return amountToken 实际添加的代币数量
+    // @return amountETH 实际添加的ETH数量
+    // @return liquidity 铸造的 LP token 数量（代表你占有该交易对流动性池中的份额）
     function addLiquidityETH(
         address token,
         uint amountTokenDesired,

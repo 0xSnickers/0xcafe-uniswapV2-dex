@@ -13,33 +13,13 @@ export default function Home() {
       <Content style={{ 
         padding: '24px 16px',
         backgroundColor: '#0d1117',
-        background: `
-          #0d1117
-        `,
-        minHeight: 'calc(100vh - 72px)'
-      }}>
-        <div style={{ 
-          maxWidth: 480, 
-          margin: '40px auto 0',
+        minHeight: 'calc(100vh - 72px)',
           display: 'flex',
           justifyContent: 'center',
-          alignItems: 'flex-start'
-        }}>
-          <div style={{
-            width: '100%',
-            background: 'rgba(255, 255, 255, 0.02)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '24px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            boxShadow: `
-              0 8px 32px 0 rgba(0, 0, 0, 0.4),
-              inset 0 1px 0 0 rgba(255, 255, 255, 0.05)
-            `,
-            overflow: 'hidden'
+        alignItems: 'flex-start',
+        paddingTop: '60px'
           }}>
             <SwapCard />
-          </div>
-        </div>
       </Content>
     </Layout>
   );

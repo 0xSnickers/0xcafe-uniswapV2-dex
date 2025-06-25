@@ -102,27 +102,35 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
             kLast = 0;
         }
     }
-
+    // @notice 添加流动性
+    // @param to 接收流动性地址
+    // @return liquidity 添加的流动性数量
     function mint(address to) external lock returns (uint liquidity) {
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
         uint amount0 = balance0.sub(_reserve0);
         uint amount1 = balance1.sub(_reserve1);
-
+        // 计算手续费
         bool feeOn = _mintFee(_reserve0, _reserve1);
+        // 获取总供应量
         uint _totalSupply = totalSupply;
+        // 首次添加流动性时，设置最小流动性为1000
         if (_totalSupply == 0) {
             liquidity = Math.sqrt(amount0.mul(amount1)).sub(MINIMUM_LIQUIDITY);
-            _mint(address(0), MINIMUM_LIQUIDITY);
+            _mint(address(0), MINIMUM_LIQUIDITY); // 锁住最小 LP token 永不回收
         } else {
+            // 非首次添加流动性时，计算流动性
             liquidity = Math.min(amount0.mul(_totalSupply) / _reserve0, amount1.mul(_totalSupply) / _reserve1);
         }
+        // 流动性不能为0
         require(liquidity > 0, 'UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED');
-        _mint(to, liquidity);
-
+        _mint(to, liquidity); // 给用户铸造 LP Token
+        // 更新储备量
         _update(balance0, balance1, _reserve0, _reserve1);
+        // 更新kLast
         if (feeOn) kLast = uint(reserve0).mul(reserve1);
+        // 触发Mint事件
         emit Mint(msg.sender, amount0, amount1);
     }
 
@@ -149,7 +157,11 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         if (feeOn) kLast = uint(reserve0).mul(reserve1);
         emit Burn(msg.sender, amount0, amount1, to);
     }
-
+    // @notice 交换代币
+    // @param amount0Out 输出代币0的数量
+    // @param amount1Out 输出代币1的数量
+    // @param to 接收代币的地址
+    // @param data 附加数据
     function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
         (uint112 _reserve0, uint112 _reserve1,) = getReserves();

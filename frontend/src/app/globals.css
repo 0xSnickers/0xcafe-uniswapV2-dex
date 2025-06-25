@@ -133,14 +133,14 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 16px !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-  padding: 8px !important;
+  padding: 0 !important;
 }
 
 .ant-select-item {
   color: var(--foreground) !important;
   border-radius: 12px !important;
-  margin: 2px 0 !important;
-  padding: 8px 12px !important;
+  margin: 0 !important;
+  padding: 5px !important;
   transition: all 0.2s ease !important;
 }
 
@@ -353,6 +353,17 @@ body {
   background: rgba(13, 17, 23, 0.98) !important;
   backdrop-filter: blur(20px) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px !important;
+}
+
+/* RainbowKit Modal 所有子元素强制深色 */
+[data-rk] [role="dialog"] * {
+  background-color: transparent !important;
+}
+
+/* RainbowKit Modal 主容器 */
+[data-rk] [role="dialog"] > div:first-child {
+  background: rgba(13, 17, 23, 0.98) !important;
 }
 
 /* RainbowKit modal overlay */
@@ -425,16 +436,87 @@ body {
   color: #ffffff !important;
 }
 
-/* RainbowKit 所有背景元素 */
-[data-rk] div:not([role]):not([data-testid]) {
+/* RainbowKit 所有背景元素 - 更精确的选择器 */
+[data-rk] > div:not([role]):not([data-testid]):not(.ant-select-dropdown) {
   background: transparent !important;
 }
+
+/* RainbowKit Modal 强制深色背景 */
+[data-rk] [role="dialog"] {
+  background: rgba(13, 17, 23, 0.98) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px !important;
+}
+
+/* RainbowKit Modal 内容区域 */
+[data-rk] [role="dialog"] > div {
+  background: rgba(13, 17, 23, 0.98) !important;
+}
+
+/* RainbowKit 所有内部容器 */
+[data-rk] div[data-testid*="rk"] {
+  background: rgba(13, 17, 23, 0.95) !important;
+}
+
+/* 确保 Ant Design 组件不受 RainbowKit 样式影响 */
+.ant-select-dropdown {
+  background: #2d3748 !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+}
+
+.ant-select-dropdown .ant-select-item {
+  background: transparent !important;
+  color: #ffffff !important;
+  border-radius: 6px !important;
+  margin: 2px 4px !important;
+  /* padding: 6px 10px !important; */
+  height: 44px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.ant-select-dropdown .ant-select-item:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-select-dropdown .ant-select-item-option-selected {
+  background: rgba(102, 126, 234, 0.2) !important;
+}
+
+/* 代币选择器特定样式 */
+.ant-select-dropdown .ant-divider {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  margin: 6px 0 !important;
+}
+
+/* 防止全局样式覆盖 Modal */
+.ant-modal-content {
+  background: rgba(26, 32, 44, 0.95) !important;
+}
+
 
 /* RainbowKit 卡片背景 */
 [data-rk] [data-testid*="card"],
 [data-rk] [data-testid*="container"] {
   background: rgba(13, 17, 23, 0.95) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* RainbowKit 强制所有背景为深色 */
+[data-rk] {
+  background: rgba(13, 17, 23, 0.98) !important;
+}
+
+[data-rk] > * {
+  background: rgba(13, 17, 23, 0.98) !important;
+}
+
+/* RainbowKit Modal 内容强制深色 */
+[data-rk] [role="dialog"] [data-testid] {
+  background: rgba(13, 17, 23, 0.95) !important;
 }
 
 /* Ant Design InputNumber 暗色主题 */

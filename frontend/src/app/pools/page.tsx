@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Layout, Card, Typography, Button, Input, Space, Table, Tag, Divider, Statistic, Row, Col } from 'antd';
-import { PlusOutlined, SearchOutlined, FireOutlined, TrophyOutlined, DollarOutlined } from '@ant-design/icons';
+import { Layout, Card, Typography, Button, Input, Space, Table, Tag, Divider, Statistic, Row, Col, Spin, Alert, Tooltip } from 'antd';
+import { PlusOutlined, SearchOutlined, FireOutlined, TrophyOutlined, DollarOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 import { useAccount, useChainId } from 'wagmi';
 import Header from '@/components/Header';
+import { useAllPools, useMyPools, usePoolsStats, PoolData } from '@/hooks/useLiquidityPools';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -18,83 +19,48 @@ export default function PoolsPage() {
   const [searchValue, setSearchValue] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'my'>('all');
 
-  // 模拟流动性池数据 (实际项目中应该从合约读取)
-  const mockPools = [
-    {
-      id: 1,
-      tokenA: { symbol: 'CAFE', logo: '/favicon.jpg' },
-      tokenB: { symbol: 'ETH', logo: '/eth.png' },
-      tvl: '$1,234,567',
-      apr: '24.5%',
-      volume24h: '$89,234',
-      fees24h: '$267',
-      myLiquidity: '$0',
-      myShare: '0%',
-      isHot: true,
-    },
-    {
-      id: 2,
-      tokenA: { symbol: 'USDC', logo: '/usdc.png' },
-      tokenB: { symbol: 'ETH', logo: '/eth.png' },
-      tvl: '$2,345,678',
-      apr: '18.2%',
-      volume24h: '$156,789',
-      fees24h: '$471',
-      myLiquidity: '$1,250',
-      myShare: '0.05%',
-      isHot: false,
-    },
-    {
-      id: 3,
-      tokenA: { symbol: 'USDT', logo: '/usdt.png' },
-      tokenB: { symbol: 'USDC', logo: '/usdc.png' },
-      tvl: '$890,123',
-      apr: '12.8%',
-      volume24h: '$45,678',
-      fees24h: '$137',
-      myLiquidity: '$0',
-      myShare: '0%',
-      isHot: false,
-    },
-  ];
+  // 使用真实合约数据
+  const { pools: allPools, loading: allPoolsLoading, totalPools } = useAllPools(20);
+  const { pools: myPools, loading: myPoolsLoading } = useMyPools();
+  const poolsStats = usePoolsStats();
+
+  // 当前显示的池子数据
+  const currentPools = activeTab === 'all' ? allPools : myPools;
+  const currentLoading = activeTab === 'all' ? allPoolsLoading : myPoolsLoading;
 
   // 过滤池子数据
-  const filteredPools = mockPools.filter(pool => {
-    const searchMatch = searchValue === '' || 
-      pool.tokenA.symbol.toLowerCase().includes(searchValue.toLowerCase()) ||
-      pool.tokenB.symbol.toLowerCase().includes(searchValue.toLowerCase());
+  const filteredPools = currentPools.filter(pool => {
+    if (searchValue === '') return true;
     
-    const tabMatch = activeTab === 'all' || 
-      (activeTab === 'my' && parseFloat(pool.myLiquidity.replace('$', '').replace(',', '')) > 0);
-    
-    return searchMatch && tabMatch;
+    const searchLower = searchValue.toLowerCase();
+    return pool.tokenA.symbol.toLowerCase().includes(searchLower) ||
+           pool.tokenB.symbol.toLowerCase().includes(searchLower) ||
+           pool.tokenA.name.toLowerCase().includes(searchLower) ||
+           pool.tokenB.name.toLowerCase().includes(searchLower);
   });
 
-  // 计算总统计数据
-  const totalStats = {
-    totalTVL: '$4,469,368',
-    totalVolume24h: '$291,701',
-    totalFees24h: '$875',
-    myTotalLiquidity: '$1,250'
+  // 刷新数据
+  const handleRefresh = () => {
+    window.location.reload(); // 简单的刷新方式，可以优化为更精细的数据刷新
   };
 
   const columns = [
     {
       title: '交易对',
       key: 'pair',
-      render: (record: any) => (
+      render: (record: PoolData) => (
         <Space align="center">
           <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-            <img src={record.tokenA.logo} alt={record.tokenA.symbol} 
+            <img src={record.tokenA.logo || '/favicon.jpg'} alt={record.tokenA.symbol} 
                  style={{ width: 32, height: 32, borderRadius: '50%', zIndex: 2 }} />
-            <img src={record.tokenB.logo} alt={record.tokenB.symbol} 
+            <img src={record.tokenB.logo || '/favicon.jpg'} alt={record.tokenB.symbol} 
                  style={{ width: 32, height: 32, borderRadius: '50%', marginLeft: -8, zIndex: 1 }} />
           </div>
           <div>
             <Text style={{ color: '#ffffff', fontWeight: 600, fontSize: '16px' }}>
               {record.tokenA.symbol}/{record.tokenB.symbol}
             </Text>
-            {record.isHot && (
+            {record.tvlUSD > 100000 && (
               <Tag icon={<FireOutlined />} color="red" style={{ marginLeft: 8 }}>
                 热门
               </Tag>
@@ -112,43 +78,49 @@ export default function PoolsPage() {
       ),
     },
     {
-      title: 'APR',
-      dataIndex: 'apr',
-      key: 'apr',
-      render: (apr: string) => (
-        <Text style={{ color: '#22c55e', fontWeight: 600, fontSize: '16px' }}>{apr}</Text>
+      title: 'Reserve A',
+      key: 'reserveA',
+      render: (record: PoolData) => (
+        <div>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px' }}>
+            {parseFloat(record.reserveA).toLocaleString('en-US', { maximumFractionDigits: 2 })} {record.tokenA.symbol}
+          </Text>
+        </div>
       ),
     },
     {
-      title: '24h交易量',
-      dataIndex: 'volume24h',
-      key: 'volume24h',
-      render: (volume: string) => (
-        <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px' }}>{volume}</Text>
-      ),
-    },
-    {
-      title: '24h手续费',
-      dataIndex: 'fees24h',
-      key: 'fees24h',
-      render: (fees: string) => (
-        <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px' }}>{fees}</Text>
+      title: 'Reserve B',
+      key: 'reserveB',
+      render: (record: PoolData) => (
+        <div>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px' }}>
+            {parseFloat(record.reserveB).toLocaleString('en-US', { maximumFractionDigits: 2 })} {record.tokenB.symbol}
+          </Text>
+        </div>
       ),
     },
     {
       title: '我的流动性',
       key: 'myLiquidity',
-      render: (record: any) => (
+      render: (record: PoolData) => (
         <div>
+          {record.myLiquidityUSD > 0 ? (
+            <Tooltip title={record.myLiquidity} placement="top">
+              <div style={{ cursor: 'pointer' }}>
           <Text style={{ color: '#ffffff', fontWeight: 600, fontSize: '14px' }}>
-            {record.myLiquidity}
+                  ${record.myLiquidityUSD.toFixed(2)}
           </Text>
-          {parseFloat(record.myLiquidity.replace('$', '').replace(',', '')) > 0 && (
             <div>
               <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '12px' }}>
-                ({record.myShare})
+                    {record.myShare}
               </Text>
             </div>
+              </div>
+            </Tooltip>
+          ) : (
+            <Text style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '14px' }}>
+              $0
+            </Text>
           )}
         </div>
       ),
@@ -156,12 +128,12 @@ export default function PoolsPage() {
     {
       title: '操作',
       key: 'actions',
-      render: (record: any) => (
+      render: (record: PoolData) => (
         <Space>
           <Button
             type="primary"
             size="small"
-            onClick={() => router.push(`/add-liquidity?tokenA=${record.tokenA.symbol}&tokenB=${record.tokenB.symbol}`)}
+            onClick={() => router.push(`/add-liquidity?tokenA=${record.tokenA.address}&tokenB=${record.tokenB.address}`)}
             style={{
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               border: 'none',
@@ -171,10 +143,10 @@ export default function PoolsPage() {
           >
             添加
           </Button>
-          {parseFloat(record.myLiquidity.replace('$', '').replace(',', '')) > 0 && (
+          {record.myLiquidityUSD > 0 && (
             <Button
               size="small"
-              onClick={() => router.push(`/remove-liquidity?tokenA=${record.tokenA.symbol}&tokenB=${record.tokenB.symbol}`)}
+              onClick={() => router.push(`/remove-liquidity?pair=${record.pairAddress}`)}
               style={{
                 background: 'rgba(255, 255, 255, 0.1)',
                 border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -190,6 +162,37 @@ export default function PoolsPage() {
       ),
     },
   ];
+
+  if (!isConnected) {
+    return (
+      <Layout style={{ minHeight: '100vh', backgroundColor: '#0d1117' }}>
+        <Header />
+        <Content style={{ 
+          padding: '24px',
+          backgroundColor: '#0d1117',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: 'calc(100vh - 72px)'
+        }}>
+          <Card style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '20px',
+            textAlign: 'center',
+            maxWidth: '400px',
+          }}>
+            <Title level={3} style={{ color: '#ffffff', marginBottom: 16 }}>
+              连接钱包查看流动性池
+            </Title>
+            <Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              请连接您的钱包以查看和管理流动性池
+            </Text>
+          </Card>
+        </Content>
+      </Layout>
+    );
+  }
 
   return (
     <Layout style={{ minHeight: '100vh', backgroundColor: '#0d1117' }}>
@@ -207,6 +210,8 @@ export default function PoolsPage() {
         }}>
           {/* 页面标题 */}
           <div style={{ marginBottom: 32 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
             <Title level={2} style={{ 
               margin: 0, 
               color: '#ffffff',
@@ -216,8 +221,22 @@ export default function PoolsPage() {
               流动性池
             </Title>
             <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '16px', marginTop: 8 }}>
-              为交易对提供流动性并赚取手续费奖励
+                  为交易对提供流动性并赚取手续费奖励 ({totalPools} 个池子)
             </Text>
+              </div>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleRefresh}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#ffffff',
+                  borderRadius: '8px',
+                }}
+              >
+                刷新
+              </Button>
+            </div>
           </div>
 
           {/* 统计概览 */}
@@ -230,7 +249,7 @@ export default function PoolsPage() {
               }}>
                 <Statistic
                   title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>总TVL</Text>}
-                  value={totalStats.totalTVL}
+                  value={poolsStats.totalTVL}
                   valueStyle={{ color: '#ffffff', fontWeight: 600 }}
                   prefix={<DollarOutlined style={{ color: '#667eea' }} />}
                 />
@@ -243,8 +262,8 @@ export default function PoolsPage() {
                 borderRadius: '16px',
               }}>
                 <Statistic
-                  title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>24h交易量</Text>}
-                  value={totalStats.totalVolume24h}
+                  title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>活跃池子</Text>}
+                  value={poolsStats.totalPools}
                   valueStyle={{ color: '#ffffff', fontWeight: 600 }}
                   prefix={<TrophyOutlined style={{ color: '#22c55e' }} />}
                 />
@@ -257,8 +276,8 @@ export default function PoolsPage() {
                 borderRadius: '16px',
               }}>
                 <Statistic
-                  title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>24h手续费</Text>}
-                  value={totalStats.totalFees24h}
+                  title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>我的池子</Text>}
+                  value={poolsStats.myActivePools}
                   valueStyle={{ color: '#ffffff', fontWeight: 600 }}
                   prefix={<FireOutlined style={{ color: '#f59e0b' }} />}
                 />
@@ -272,7 +291,7 @@ export default function PoolsPage() {
               }}>
                 <Statistic
                   title={<Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>我的流动性</Text>}
-                  value={totalStats.myTotalLiquidity}
+                  value={poolsStats.myTotalLiquidity}
                   valueStyle={{ color: '#ffffff', fontWeight: 600 }}
                   prefix={<PlusOutlined style={{ color: '#ff007a' }} />}
                 />
@@ -309,7 +328,7 @@ export default function PoolsPage() {
                     fontWeight: 600,
                   }}
                 >
-                  所有池子
+                  所有池子 ({allPools.length})
                 </Button>
                 <Button
                   type={activeTab === 'my' ? 'primary' : 'text'}
@@ -325,7 +344,7 @@ export default function PoolsPage() {
                     fontWeight: 600,
                   }}
                 >
-                  我的流动性
+                  我的流动性 ({myPools.length})
                 </Button>
               </Space>
 
@@ -362,6 +381,68 @@ export default function PoolsPage() {
             border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '20px',
           }}>
+            {currentLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <Spin size="large" />
+                <div style={{ marginTop: 16 }}>
+                  <Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+                    正在加载流动性池数据...
+                  </Text>
+                </div>
+              </div>
+            ) : filteredPools.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                {searchValue ? (
+                  <Alert
+                    message="未找到匹配的流动性池"
+                    description={`没有找到包含 "${searchValue}" 的交易对`}
+                    type="info"
+                    showIcon
+                    style={{
+                      background: 'rgba(24, 144, 255, 0.1)',
+                      border: '1px solid rgba(24, 144, 255, 0.3)',
+                      color: '#ffffff',
+                    }}
+                  />
+                ) : activeTab === 'my' ? (
+                  <Alert
+                    message="您还没有提供流动性"
+                    description="添加流动性以赚取交易手续费"
+                    type="warning"
+                    showIcon
+                    style={{
+                      background: 'rgba(250, 173, 20, 0.1)',
+                      border: '1px solid rgba(250, 173, 20, 0.3)',
+                      color: '#ffffff',
+                    }}
+                    action={
+                      <Button
+                        type="primary"
+                        onClick={() => router.push('/add-liquidity')}
+                        style={{
+                          background: 'linear-gradient(135deg, #ff007a 0%, #ff6b9d 100%)',
+                          border: 'none',
+                        }}
+                      >
+                        添加流动性
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <Alert
+                    message="暂无流动性池"
+                    description="还没有创建任何流动性池"
+                    type="info"
+                    showIcon
+                    style={{
+                      background: 'rgba(24, 144, 255, 0.1)',
+                      border: '1px solid rgba(24, 144, 255, 0.3)',
+                      color: '#ffffff',
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
             <Table
               columns={columns}
               dataSource={filteredPools}
@@ -381,10 +462,8 @@ export default function PoolsPage() {
                   ),
                 },
               }}
-              locale={{
-                emptyText: activeTab === 'my' ? '您还没有提供流动性' : '暂无流动性池'
-              }}
             />
+            )}
           </Card>
 
           {/* 底部信息 */}
@@ -392,6 +471,13 @@ export default function PoolsPage() {
             <Text style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '14px' }}>
               通过提供流动性，您将获得该交易对 0.25% 的交易手续费奖励
             </Text>
+            {chainId && (
+              <div style={{ marginTop: 8 }}>
+                <Text style={{ color: 'rgba(255, 255, 255, 0.3)', fontSize: '12px' }}>
+                  网络: Chain ID {chainId}
+                </Text>
+              </div>
+            )}
           </div>
         </div>
       </Content>

@@ -1,863 +1,599 @@
 'use client';
 
-import { useState, useEffect, useCallback, memo } from 'react';
-import { Input, Button, Select, Typography, Space, message, Modal, Slider, InputNumber } from 'antd';
-import { SwapOutlined, SettingOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
-import { useAccount, useBalance, useWriteContract, useReadContract, useChainId } from 'wagmi';
-import { formatEther, parseEther } from 'viem';
-import { UNISWAP_V2_ROUTER_ABI } from '@/config/contracts';
-import { Token, getTokensForChain, isNativeToken, formatTokenAmount } from '@/utils/tokens';
-import { ENV, getContractAddresses } from '@/config/env';
+import { useState, useEffect, useMemo } from 'react';
+import { Input, Button, Typography, Space, message, Modal, Card, Spin } from 'antd';
+import { SwapOutlined, SettingOutlined, LoadingOutlined } from '@ant-design/icons';
+import { useAccount, useBalance, useWriteContract } from 'wagmi';
+import { formatEther, parseUnits, formatUnits } from 'viem';
+import { UNISWAP_V2_ROUTER_ABI } from '@/config/abis';
+import { useContractAddresses, useSwapQuoteWithPath } from '@/hooks/useUniswapV2';
+import SwapTokenSelector, { TokenInfo } from './SwapTokenSelector';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
-
-// 提取SettingsModal为独立组件，使用memo防止不必要的重新渲染
-interface SettingsModalProps {
-  showSettings: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  tempSlippage: number;
-  tempCustomSlippage: string;
-  tempSlippageWarning: 'none' | 'low' | 'high' | 'extreme';
-  onTempSlippageChange: (value: number) => void;
-  onTempCustomSlippageChange: (value: string) => void;
-  getTempSlippageColor: () => string;
-  getTempSlippageText: () => string;
-}
-
-const SettingsModal = memo(({
-  showSettings,
-  onCancel,
-  onConfirm,
-  tempSlippage,
-  tempCustomSlippage,
-  tempSlippageWarning,
-  onTempSlippageChange,
-  onTempCustomSlippageChange,
-  getTempSlippageColor,
-  getTempSlippageText
-}: SettingsModalProps) => (
-  <Modal
-    title={
-      <div style={{ color: '#ffffff', fontSize: '16px', fontWeight: 600 }}>
-        <SettingOutlined style={{ marginRight: 8 }} />
-        交易设置
-      </div>
-    }
-    open={showSettings}
-    onCancel={onCancel}
-    onOk={onConfirm}
-    footer={null}
-    centered
-    width={400}
-    styles={{
-      content: {
-        background: 'rgba(26, 32, 44, 0.95)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '20px',
-        padding: 0,
-      },
-      header: {
-        background: 'transparent',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        padding: '16px 16px 12px',
-      }
-    }}
-  >
-    <div style={{ padding: '4px 16px 0px' }}>
-      {/* 滑点容差设置 */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ marginBottom: 12 }}>
-          <Text style={{ color: '#ffffff', fontSize: '12px', fontWeight: 600 }}>
-            滑点容差
-          </Text>
-        </div>
-
-        {/* 预设滑点按钮 */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '6px', 
-          marginBottom: 12, 
-          flexWrap: 'wrap' 
-        }}>
-          {[0.1, 0.5, 1.0].map((value) => (
-            <Button
-              key={value}
-              size="small"
-              onClick={() => onTempSlippageChange(value)}
-              style={{
-                flex: 1,
-                minWidth: '60px',
-                height: '32px',
-                borderRadius: '8px',
-                border: tempSlippage === value ? '2px solid #ff007a' : '2px solid rgba(255, 255, 255, 0.1)',
-                background: tempSlippage === value ? 'rgba(255, 0, 122, 0.1)' : 'rgba(255, 255, 255, 0.05)',
-                color: tempSlippage === value ? '#ff007a' : '#ffffff',
-                fontWeight: 600,
-                fontSize: '12px',
-              }}
-            >
-              {value}%
-            </Button>
-          ))}
-          
-          {/* 自定义滑点输入 */}
-          <div style={{ 
-            flex: 1, 
-            minWidth: '100%',
-          }}>
-            <InputNumber
-              value={tempCustomSlippage ? parseFloat(tempCustomSlippage) : undefined}
-              onChange={(value) => onTempCustomSlippageChange(value?.toString() || '')}
-              placeholder="自定义滑点"
-              style={{
-                width: '100%',
-                height: '32px',
-                borderRadius: '8px',
-                border: 'none',
-                background: 'transparent',
-                fontSize: '12px',
-                fontWeight: 600,
-                padding: '0',
-              }}
-              controls={false}
-              suffix={<span style={{ color: '#ffffff', fontSize: '11px', fontWeight: 500 }}>%</span>}
-              min={ENV.TRADING.MIN_SLIPPAGE}
-              max={ENV.TRADING.MAX_SLIPPAGE}
-              step={0.1}
-              precision={2}
-            />
-          </div>
-        </div>
-
-        {/* 滑点警告 */}
-        {tempSlippageWarning !== 'none' && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '8px 12px',
-            background: `${getTempSlippageColor()}20`,
-            border: `1px solid ${getTempSlippageColor()}40`,
-            borderRadius: '8px',
-            marginBottom: 12,
-          }}>
-            <WarningOutlined style={{ color: getTempSlippageColor(), fontSize: '12px' }} />
-            <Text style={{ color: getTempSlippageColor(), fontSize: '11px' }}>
-              {getTempSlippageText()}
-            </Text>
-          </div>
-        )}
-
-        {/* 当前滑点显示 */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '8px 12px',
-          background: 'rgba(255, 255, 255, 0.03)',
-          borderRadius: '8px',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-        }}>
-          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '12px' }}>
-            当前滑点容差
-          </Text>
-          <Text style={{ 
-            color: getTempSlippageColor(), 
-            fontSize: '12px', 
-            fontWeight: 600 
-          }}>
-            {tempSlippage.toFixed(2)}%
-          </Text>
-        </div>
-      </div>
-
-      {/* 确认和取消按钮 */}
-      <div style={{
-        display: 'flex',
-        gap: '12px',
-        padding: '0 0 16px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-        paddingTop: '16px'
-      }}>
-        <Button
-          onClick={onCancel}
-          style={{
-            flex: 1,
-            height: '36px',
-            borderRadius: '10px',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            background: 'rgba(255, 255, 255, 0.05)',
-            color: 'rgba(255, 255, 255, 0.8)',
-            fontWeight: 500,
-            fontSize: '14px',
-          }}
-        >
-          取消
-        </Button>
-        <Button
-          type="primary"
-          onClick={onConfirm}
-          style={{
-            flex: 1,
-            height: '36px',
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #ff007a 0%, #ff6b9d 100%)',
-            border: 'none',
-            color: '#ffffff',
-            fontWeight: 600,
-            fontSize: '14px',
-            boxShadow: '0 2px 8px rgba(255, 0, 122, 0.3)',
-          }}
-        >
-          确认
-        </Button>
-      </div>
-    </div>
-  </Modal>
-));
-
-SettingsModal.displayName = 'SettingsModal';
 
 export default function SwapCard() {
-  const chainId = useChainId();
-  const [tokens, setTokens] = useState<Token[]>([]);
-  const [fromToken, setFromToken] = useState<Token | null>(null);
-  const [toToken, setToToken] = useState<Token | null>(null);
+  const [fromToken, setFromToken] = useState<TokenInfo | null>(null);
+  const [toToken, setToToken] = useState<TokenInfo | null>(null);
   const [fromAmount, setFromAmount] = useState<string>('');
   const [toAmount, setToAmount] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [slippage, setSlippage] = useState(ENV.TRADING.DEFAULT_SLIPPAGE);
-  const [customSlippage, setCustomSlippage] = useState<string>('');
-  const [deadline, setDeadline] = useState(ENV.TRADING.DEFAULT_DEADLINE);
+  const [slippage, setSlippage] = useState<number>(0.5);
   const [showSettings, setShowSettings] = useState(false);
-  const [slippageWarning, setSlippageWarning] = useState<'none' | 'low' | 'high' | 'extreme'>('none');
-
-  // 临时设置状态，用于弹窗中的修改
-  const [tempSlippage, setTempSlippage] = useState(ENV.TRADING.DEFAULT_SLIPPAGE);
-  const [tempCustomSlippage, setTempCustomSlippage] = useState<string>('');
-  const [tempDeadline, setTempDeadline] = useState(ENV.TRADING.DEFAULT_DEADLINE);
-  const [tempSlippageWarning, setTempSlippageWarning] = useState<'none' | 'low' | 'high' | 'extreme'>('none');
+  const [loading, setLoading] = useState(false);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState(false);
 
   const { address, isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
+  const addresses = useContractAddresses();
 
-  // 初始化代币列表
-  useEffect(() => {
-    const chainTokens = getTokensForChain(chainId);
-    setTokens(chainTokens);
+  // 构建交换路径
+  const swapPath = useMemo(() => {
+    if (!fromToken || !toToken || !addresses?.weth) return null;
     
-    if (chainTokens.length > 0 && !fromToken) {
-      setFromToken(chainTokens[0]); // 默认选择第一个代币 (ETH)
-    }
-  }, [chainId, fromToken]);
-
-  // 滑点警告检测 - 应用到实际设置
-  useEffect(() => {
-    if (slippage < 0.1) {
-      setSlippageWarning('low');
-    } else if (slippage > 5 && slippage <= 15) {
-      setSlippageWarning('high');
-    } else if (slippage > 15) {
-      setSlippageWarning('extreme');
+    const wethAddress = addresses.weth;
+    
+    if (fromToken.symbol === 'ETH') {
+      return [wethAddress, toToken.address];
+    } else if (toToken.symbol === 'ETH') {
+      return [fromToken.address, wethAddress];
     } else {
-      setSlippageWarning('none');
-    }
-  }, [slippage]);
-
-  // 临时滑点警告检测 - 应用到弹窗中的临时设置
-  useEffect(() => {
-    if (tempSlippage < 0.1) {
-      setTempSlippageWarning('low');
-    } else if (tempSlippage > 5 && tempSlippage <= 15) {
-      setTempSlippageWarning('high');
-    } else if (tempSlippage > 15) {
-      setTempSlippageWarning('extreme');
-    } else {
-      setTempSlippageWarning('none');
-    }
-  }, [tempSlippage]);
-
-  // 打开设置弹窗时，同步当前设置到临时状态
-  const handleOpenSettings = useCallback(() => {
-    setTempSlippage(slippage);
-    setTempCustomSlippage(customSlippage);
-    setTempDeadline(deadline);
-    // 同步当前滑点警告状态到临时状态，避免触发useEffect
-    setTempSlippageWarning(slippageWarning);
-    setShowSettings(true);
-  }, [slippage, customSlippage, deadline, slippageWarning]);
-
-  // 取消设置修改
-  const handleCancelSettings = useCallback(() => {
-    setShowSettings(false);
-    // 重置临时状态
-    setTempSlippage(slippage);
-    setTempCustomSlippage(customSlippage);
-    setTempDeadline(deadline);
-    setTempSlippageWarning(slippageWarning);
-  }, [slippage, customSlippage, deadline, slippageWarning]);
-
-  // 确认应用设置
-  const handleConfirmSettings = useCallback(() => {
-    setSlippage(tempSlippage);
-    setCustomSlippage(tempCustomSlippage);
-    setDeadline(tempDeadline);
-    setShowSettings(false);
-    message.success('交易设置已更新');
-  }, [tempSlippage, tempCustomSlippage, tempDeadline]);
-
-  // 临时滑点修改
-  const handleTempSlippageChange = useCallback((value: number) => {
-    setTempSlippage(value);
-    setTempCustomSlippage('');
-    // 手动设置警告状态，避免useEffect触发
-    if (value < 0.1) {
-      setTempSlippageWarning('low');
-    } else if (value > 5 && value <= 15) {
-      setTempSlippageWarning('high');
-    } else if (value > 15) {
-      setTempSlippageWarning('extreme');
-    } else {
-      setTempSlippageWarning('none');
-    }
-  }, []);
-
-  // 临时自定义滑点修改
-  const handleTempCustomSlippageChange = useCallback((value: string) => {
-    setTempCustomSlippage(value);
-    const numValue = parseFloat(value);
-    if (!isNaN(numValue) && numValue >= ENV.TRADING.MIN_SLIPPAGE && numValue <= ENV.TRADING.MAX_SLIPPAGE) {
-      setTempSlippage(numValue);
-      // 手动设置警告状态，避免useEffect触发
-      if (numValue < 0.1) {
-        setTempSlippageWarning('low');
-      } else if (numValue > 5 && numValue <= 15) {
-        setTempSlippageWarning('high');
-      } else if (numValue > 15) {
-        setTempSlippageWarning('extreme');
+      // Token to Token，通过WETH路径
+      if (fromToken.address.toLowerCase() === wethAddress.toLowerCase() || 
+          toToken.address.toLowerCase() === wethAddress.toLowerCase()) {
+        return [fromToken.address, toToken.address];
       } else {
-        setTempSlippageWarning('none');
+        return [fromToken.address, wethAddress, toToken.address];
       }
     }
-  }, []);
+  }, [fromToken, toToken, addresses?.weth]);
 
-  // 获取临时滑点颜色
-  const getTempSlippageColor = useCallback(() => {
-    switch (tempSlippageWarning) {
-      case 'low': return '#fbbf24';
-      case 'high': return '#f59e0b';
-      case 'extreme': return '#ef4444';
-      default: return '#667eea';
+  // 获取交换价格估算
+  const { amountOut, amounts } = useSwapQuoteWithPath(
+    fromAmount,
+    swapPath as `0x${string}`[] || [],
+    fromToken?.decimals || 18,
+    !!(fromToken && toToken && fromAmount && parseFloat(fromAmount) > 0 && swapPath)
+  );
+
+  // 计算预期输出金额
+  const expectedOutput = useMemo(() => {
+    if (!amountOut || !toToken) return '';
+    try {
+      return formatUnits(amountOut, toToken.decimals);
+    } catch {
+      return '';
     }
-  }, [tempSlippageWarning]);
+  }, [amountOut, toToken]);
 
-  // 获取临时滑点警告文本
-  const getTempSlippageText = useCallback(() => {
-    switch (tempSlippageWarning) {
-      case 'low': return '滑点可能过低，交易可能失败';
-      case 'high': return '滑点较高，您可能收到更少代币';
-      case 'extreme': return '滑点极高，存在较大损失风险';
-      default: return '';
-    }
-  }, [tempSlippageWarning]);
-
-  // 获取用户余额
-  const { data: fromBalance } = useBalance({
-    address: address,
-    token: fromToken && !isNativeToken(fromToken) 
-      ? fromToken.address as `0x${string}`
-      : undefined,
-  });
-
-  const { data: toBalance } = useBalance({
-    address: address,
-    token: toToken && !isNativeToken(toToken) 
-      ? toToken.address as `0x${string}`
-      : undefined,
-  });
-
-  // 获取预估输出数量
-  const { data: amountsOut, refetch: refetchAmountsOut } = useReadContract({
-    address: getContractAddresses(chainId)?.ROUTER as `0x${string}`,
-    abi: UNISWAP_V2_ROUTER_ABI,
-    functionName: 'getAmountsOut',
-    args: fromAmount && fromToken && toToken && parseFloat(fromAmount) > 0 ? [
-      parseEther(fromAmount),
-      [fromToken.address as `0x${string}`, toToken.address as `0x${string}`]
-    ] : undefined,
-    query: {
-      enabled: !!(fromAmount && fromToken && toToken && parseFloat(fromAmount) > 0),
-    }
-  });
-
-  // 当获取到预估输出时更新 toAmount
+  // 自动更新toAmount
   useEffect(() => {
-    if (amountsOut && amountsOut.length > 1) {
-      setToAmount(formatEther(amountsOut[1]));
-    } else {
+    if (expectedOutput && fromAmount && parseFloat(fromAmount) > 0) {
+      setToAmount(parseFloat(expectedOutput).toFixed(6));
+    } else if (!fromAmount || parseFloat(fromAmount) <= 0) {
       setToAmount('');
     }
-  }, [amountsOut]);
+  }, [expectedOutput, fromAmount]);
 
+  // 获取代币余额
+  const { data: fromBalance, refetch: refetchFromBalance } = useBalance({
+    address: address,
+    token: fromToken?.address === '0x0000000000000000000000000000000000000000' ? undefined : fromToken?.address as `0x${string}`,
+    query: {
+      enabled: !!(address && fromToken?.address),
+    },
+  });
+
+  const { data: toBalance, refetch: refetchToBalance } = useBalance({
+    address: address,
+    token: toToken?.address === '0x0000000000000000000000000000000000000000' ? undefined : toToken?.address as `0x${string}`,
+    query: {
+      enabled: !!(address && toToken?.address),
+    },
+  });
+
+  // 处理代币交换
   const handleSwapTokens = () => {
     const tempToken = fromToken;
+    const tempAmount = fromAmount;
     setFromToken(toToken);
     setToToken(tempToken);
-    
-    // 交换数量
-    const tempAmount = fromAmount;
     setFromAmount(toAmount);
     setToAmount(tempAmount);
   };
 
-  const handleFromAmountChange = (value: string) => {
-    setFromAmount(value);
-    
-    // 触发重新获取预估输出
-    if (value && fromToken && toToken && parseFloat(value) > 0) {
-      setTimeout(() => {
-        refetchAmountsOut();
-      }, 300); // 防抖
-    } else {
-      setToAmount('');
+  // 处理最大余额
+  const handleMaxBalance = () => {
+    if (fromBalance) {
+      const maxAmount = formatEther(fromBalance.value);
+      setFromAmount(maxAmount);
     }
   };
 
-  const handleSlippageChange = (value: number) => {
-    setSlippage(value);
-    setCustomSlippage('');
-  };
-
-  const handleCustomSlippageChange = (value: string) => {
-    setCustomSlippage(value);
-    const numValue = parseFloat(value);
-    if (!isNaN(numValue) && numValue >= ENV.TRADING.MIN_SLIPPAGE && numValue <= ENV.TRADING.MAX_SLIPPAGE) {
-      setSlippage(numValue);
-    }
-  };
-
+  // 处理交换
   const handleSwap = async () => {
-    if (!isConnected || !address || !fromToken || !toToken || !fromAmount || !toAmount) {
-      message.error('请连接钱包并输入交换信息');
+    if (!fromToken || !toToken || !fromAmount || !addresses?.router || !address) {
+      message.error('请填写完整信息');
       return;
     }
 
-    const contractAddresses = getContractAddresses(chainId);
-    if (!contractAddresses) {
-      message.error('当前网络不支持，请切换到 Anvil 本地网络');
+    // 防止相同代币交换
+    if (fromToken.address === toToken.address) {
+      message.error('不能交换相同的代币');
       return;
     }
 
-    setLoading(true);
     try {
-      const deadlineTime = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
-      const amountIn = parseEther(fromAmount);
-      const amountOutMin = parseEther(toAmount) * BigInt(100 - slippage * 100) / BigInt(10000); // 滑点保护
+      setLoading(true);
 
-      let txHash;
+      const amountIn = parseUnits(fromAmount, fromToken.decimals);
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20分钟
+      
+      // 计算最小输出量（滑点保护）
+      const minAmountOut = expectedOutput ? 
+        parseUnits((parseFloat(expectedOutput) * (1 - slippage / 100)).toFixed(toToken.decimals), toToken.decimals) :
+        BigInt(0);
 
-      if (isNativeToken(fromToken)) {
+      if (!swapPath || swapPath.length < 2) {
+        message.error('无效的交换路径');
+        return;
+      }
+
+      if (fromToken.symbol === 'ETH') {
         // ETH -> Token
-        txHash = await writeContractAsync({
-          address: contractAddresses.ROUTER as `0x${string}`,
+        await writeContractAsync({
+          address: addresses.router,
           abi: UNISWAP_V2_ROUTER_ABI,
           functionName: 'swapExactETHForTokens',
           args: [
-            amountOutMin,
-            [fromToken.address as `0x${string}`, toToken.address as `0x${string}`],
+            minAmountOut,
+            swapPath as `0x${string}`[],
             address,
-            deadlineTime,
+            deadline
           ],
           value: amountIn,
         });
-      } else if (isNativeToken(toToken)) {
+      } else if (toToken.symbol === 'ETH') {
         // Token -> ETH
-        txHash = await writeContractAsync({
-          address: contractAddresses.ROUTER as `0x${string}`,
+        await writeContractAsync({
+          address: addresses.router,
           abi: UNISWAP_V2_ROUTER_ABI,
           functionName: 'swapExactTokensForETH',
           args: [
             amountIn,
-            amountOutMin,
-            [fromToken.address as `0x${string}`, toToken.address as `0x${string}`],
+            minAmountOut,
+            swapPath as `0x${string}`[],
             address,
-            deadlineTime,
+            deadline
           ],
         });
       } else {
         // Token -> Token
-        txHash = await writeContractAsync({
-          address: contractAddresses.ROUTER as `0x${string}`,
+        await writeContractAsync({
+          address: addresses.router,
           abi: UNISWAP_V2_ROUTER_ABI,
           functionName: 'swapExactTokensForTokens',
           args: [
             amountIn,
-            amountOutMin,
-            [fromToken.address as `0x${string}`, toToken.address as `0x${string}`],
+            minAmountOut,
+            swapPath as `0x${string}`[],
             address,
-            deadlineTime,
+            deadline
           ],
         });
       }
 
-      message.success(`交换成功！交易哈希: ${txHash}`);
+      message.success('交换成功！');
       setFromAmount('');
       setToAmount('');
-    } catch (error: unknown) {
-      console.error('交换失败:', error);
-      const errorMessage = error instanceof Error ? error.message : '请重试';
-      message.error(`交换失败: ${errorMessage}`);
+      
+      // 刷新余额
+      if (refetchFromBalance) {
+        refetchFromBalance();
+      }
+      if (refetchToBalance) {
+        refetchToBalance();
+      }
+    } catch (error: any) {
+      console.error('Swap error:', error);
+      message.error(`交换失败: ${error.message || '未知错误'}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const getSlippageColor = () => {
-    switch (slippageWarning) {
-      case 'low': return '#fbbf24';
-      case 'high': return '#f59e0b';
-      case 'extreme': return '#ef4444';
-      default: return '#667eea';
-    }
-  };
+  const canSwap = fromToken && toToken && fromAmount && expectedOutput && !loading && isConnected && 
+    !(fromToken.symbol === 'ETH' && toToken.symbol === 'ETH') && parseFloat(fromAmount) > 0;
 
-
-  const isSwapDisabled = !isConnected || !fromAmount || !toToken || !fromToken || parseFloat(fromAmount) <= 0;
+  if (!isConnected) {
+    return (
+      <Card style={{
+        background: 'rgba(255, 255, 255, 0.05)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '20px',
+        textAlign: 'center',
+        maxWidth: '400px',
+        margin: '0 auto',
+      }}>
+        <Title level={4} style={{ color: '#ffffff', marginBottom: 16 }}>
+          连接钱包进行交换
+        </Title>
+        <Text style={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+          请连接您的钱包以使用交换功能
+        </Text>
+      </Card>
+    );
+  }
 
   return (
-    <div style={{ 
-      padding: '24px',
-      background: 'transparent'
+    <Card style={{
+      background: 'rgba(255, 255, 255, 0.05)',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      borderRadius: '20px',
+      padding: '20px',
+      width: '100%',
+      maxWidth: '420px',
+      margin: '0 auto',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+      backdropFilter: 'blur(20px)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ 
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <Title level={4} style={{ 
           margin: 0, 
           color: '#ffffff',
-          fontWeight: 600,
-          fontSize: '20px'
+          fontSize: '18px',
+          fontWeight: 600
         }}>
-          Swap
+          交换
         </Title>
         <Button 
           type="text" 
           icon={<SettingOutlined />}
+          onClick={() => setShowSettings(true)}
           style={{ 
             color: 'rgba(255, 255, 255, 0.6)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '12px',
-            width: '40px',
-            height: '40px',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '10px',
+            width: '32px',
+            height: '32px',
+            padding: 0,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            fontSize: '14px'
           }}
-          onClick={handleOpenSettings}
         />
       </div>
 
       {/* From Token */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 500 }}>From</Text>
-          {fromBalance && (
-            <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 500 }}>
-              余额: {formatTokenAmount(formatEther(fromBalance.value))} {fromBalance.symbol}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ 
+            color: 'rgba(255, 255, 255, 0.7)', 
+            fontWeight: 500,
+            fontSize: '12px'
+          }}>
+            从
+          </Text>
+          {fromBalance && fromToken && (
+            <Space size={4}>
+              <Text style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '11px' }}>
+                余额: {parseFloat(formatEther(fromBalance.value)).toFixed(4)} {fromToken.symbol}
             </Text>
+              <Button 
+                size="small" 
+                type="text"
+                onClick={handleMaxBalance}
+                style={{ 
+                  color: '#667eea', 
+                  fontSize: '10px',
+                  padding: '0 6px',
+                  height: '16px',
+                  lineHeight: '16px',
+                  minWidth: 'auto'
+                }}
+              >
+                MAX
+              </Button>
+            </Space>
           )}
         </div>
-      </div>
+
       <div style={{ 
-        display: 'flex', 
-        alignItems: 'center',
-        padding: '16px',
-        background: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: 20,
-        marginBottom: 4,
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        transition: 'all 0.2s ease'
-      }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          background: 'rgba(255, 255, 255, 0.04)',
+          borderRadius: 12,
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          padding: '12px',
+          marginBottom: 8
+        }}>
+          <SwapTokenSelector
+            value={fromToken}
+            onChange={setFromToken}
+            placeholder="选择代币"
+            excludeTokens={toToken ? [toToken.address] : []}
+            size="small"
+            style={{ marginBottom: 8 }}
+          />
+
           <Input
             placeholder="0.0"
             value={fromAmount}
-            onChange={(e) => handleFromAmountChange(e.target.value)}
+            onChange={(e) => setFromAmount(e.target.value)}
+            disabled={!fromToken}
             style={{ 
               border: 'none', 
               background: 'transparent',
-              fontSize: '32px',
-              fontWeight: 500,
+              fontSize: '20px',
+              fontWeight: 600,
               color: '#ffffff',
               padding: 0,
-              height: 'auto'
+              boxShadow: 'none'
             }}
           />
-        </div>
-        <div style={{ marginLeft: '12px' }}>
-          <Select
-            value={fromToken?.symbol}
-            onChange={(value) => {
-              const token = tokens.find(t => t.symbol === value);
-              if (token) setFromToken(token);
-            }}
-            style={{ 
-              minWidth: 140,
-              background: 'rgba(255, 255, 255, 0.08)',
-              borderRadius: '12px'
-            }}
-            placeholder="选择代币"
-            size="large"
-            bordered={true}
-            suffixIcon={null}
-          >
-            {tokens.map(token => (
-              <Option key={token.symbol} value={token.symbol}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {token.logoURI ? (
-                    <img 
-                      src={token.logoURI} 
-                      alt={token.symbol}
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%'
-                      }}
-                    />
-                  ) : (
-                    <img 
-                      src={
-                        token.symbol === 'CAFE' ? '/favicon.jpg' :
-                        token.symbol === 'ETH' || token.symbol === 'WETH' ? '/eth.png' :
-                        token.symbol === 'USDC' ? '/usdc.png' :
-                        token.symbol === 'USDT' ? '/usdt.png' :
-                        '/favicon.jpg' // 默认图标
-                      }
-                      alt={token.symbol}
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%'
-                      }}
-                      onError={(e) => {
-                        // 如果图片加载失败，显示默认图标
-                        (e.target as HTMLImageElement).src = '/favicon.jpg';
-                      }}
-                    />
-                  )}
-                  <span style={{ fontWeight: 600 }}>{token.symbol}</span>
-                </div>
-              </Option>
-            ))}
-          </Select>
         </div>
       </div>
 
       {/* Swap Button */}
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
         <Button
           type="text"
-          icon={<SwapOutlined style={{ fontSize: '16px' }} />}
+          icon={<SwapOutlined />}
           onClick={handleSwapTokens}
-          disabled={!fromToken || !toToken}
+          disabled={!fromToken && !toToken}
           style={{ 
-            border: '2px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '12px',
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: 'rgba(255, 255, 255, 0.08)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(255, 255, 255, 0.05)',
-            color: '#ffffff',
+            fontSize: '14px',
             transition: 'all 0.2s ease'
           }}
         />
       </div>
 
       {/* To Token */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 500 }}>To</Text>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ 
+            color: 'rgba(255, 255, 255, 0.7)', 
+            fontWeight: 500,
+            fontSize: '12px'
+          }}>
+            到
+          </Text>
           {toBalance && toToken && (
-            <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.6)', fontWeight: 500 }}>
-              余额: {formatTokenAmount(formatEther(toBalance.value))} {toBalance.symbol}
+            <Text style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '11px' }}>
+              余额: {parseFloat(formatEther(toBalance.value)).toFixed(4)} {toToken.symbol}
             </Text>
           )}
         </div>
-      </div>
+
       <div style={{ 
-        display: 'flex', 
-        alignItems: 'center',
-        padding: '16px',
-        background: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: 20,
-        marginBottom: 24,
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        transition: 'all 0.2s ease'
-      }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          background: 'rgba(255, 255, 255, 0.04)',
+          borderRadius: 12,
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          padding: '12px'
+        }}>
+          <SwapTokenSelector
+            value={toToken}
+            onChange={setToToken}
+            placeholder="选择代币"
+            excludeTokens={fromToken ? [fromToken.address] : []}
+            size="small"
+            style={{ marginBottom: 8 }}
+          />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Input
             placeholder="0.0"
             value={toAmount}
-            readOnly
+              onChange={(e) => setToAmount(e.target.value)}
+              disabled={true}
             style={{ 
               border: 'none', 
               background: 'transparent',
-              fontSize: '32px',
-              fontWeight: 500,
-              color: toAmount ? '#ffffff' : 'rgba(255, 255, 255, 0.4)',
+                fontSize: '20px',
+                fontWeight: 600,
+                color: expectedOutput ? '#ffffff' : 'rgba(255, 255, 255, 0.5)',
               padding: 0,
-              height: 'auto'
-            }}
-          />
+                boxShadow: 'none',
+                flex: 1
+              }}
+            />
+            {fromAmount && fromToken && toToken && parseFloat(fromAmount) > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {!expectedOutput ? (
+                  <Spin 
+                    indicator={<LoadingOutlined style={{ fontSize: 14, color: '#667eea' }} />} 
+                    style={{ marginRight: '4px' }}
+                  />
+                ) : null}
+                <Text style={{ 
+                  fontSize: '12px', 
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {expectedOutput ? '预估' : '计算中...'}
+                </Text>
         </div>
-        <div style={{ marginLeft: '12px' }}>
-          <Select
-            placeholder="选择代币"
-            value={toToken?.symbol}
-            onChange={(value) => {
-              const token = tokens.find(t => t.symbol === value);
-              setToToken(token || null);
-            }}
-            style={{ 
-              minWidth: 140,
-              background: 'rgba(255, 255, 255, 0.08)',
-              borderRadius: '12px'
-            }}
-            size="large"
-            bordered={true}
-            suffixIcon={null}
-          >
-            {tokens.filter(t => t.symbol !== fromToken?.symbol).map(token => (
-              <Option key={token.symbol} value={token.symbol}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {token.logoURI ? (
-                    <img 
-                      src={token.logoURI} 
-                      alt={token.symbol}
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%'
-                      }}
-                    />
-                  ) : (
-                    <img 
-                      src={
-                        token.symbol === 'CAFE' ? '/favicon.jpg' :
-                        token.symbol === 'ETH' || token.symbol === 'WETH' ? '/eth.png' :
-                        token.symbol === 'USDC' ? '/usdc.png' :
-                        token.symbol === 'USDT' ? '/usdt.png' :
-                        '/favicon.jpg' // 默认图标
-                      }
-                      alt={token.symbol}
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%'
-                      }}
-                      onError={(e) => {
-                        // 如果图片加载失败，显示默认图标
-                        (e.target as HTMLImageElement).src = '/favicon.jpg';
-                      }}
-                    />
-                  )}
-                  <span style={{ fontWeight: 600 }}>{token.symbol}</span>
+            )}
                 </div>
-              </Option>
-            ))}
-          </Select>
         </div>
       </div>
+
+      {/* 交换信息 */}
+      {fromToken && toToken && fromAmount && parseFloat(fromAmount) > 0 && expectedOutput && (
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          borderRadius: '12px',
+          padding: '12px',
+          marginBottom: '16px',
+          border: '1px solid rgba(255, 255, 255, 0.08)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <Text style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+              汇率
+            </Text>
+            <Text style={{ fontSize: '12px', color: '#ffffff' }}>
+              1 {fromToken.symbol} ≈ {(parseFloat(expectedOutput) / parseFloat(fromAmount)).toFixed(6)} {toToken.symbol}
+            </Text>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <Text style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+              预期输出
+            </Text>
+            <Text style={{ fontSize: '12px', color: '#ffffff' }}>
+              {parseFloat(expectedOutput).toFixed(6)} {toToken.symbol}
+            </Text>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+              最小接收 ({slippage}% 滑点)
+            </Text>
+            <Text style={{ fontSize: '12px', color: '#ffffff' }}>
+              {(parseFloat(expectedOutput) * (1 - slippage / 100)).toFixed(6)} {toToken.symbol}
+            </Text>
+          </div>
+        </div>
+      )}
 
       {/* Swap Button */}
       <Button
         type="primary"
         size="large"
-        block
         loading={loading}
-        disabled={isSwapDisabled}
+        disabled={!canSwap}
         onClick={handleSwap}
         style={{ 
-          height: 56,
-          borderRadius: 20,
-          fontSize: '18px',
-          fontWeight: 600,
-          background: isSwapDisabled 
-            ? 'rgba(255, 255, 255, 0.08)' 
-            : 'linear-gradient(135deg, #ff007a 0%, #ff6b9d 100%)',
+          width: '100%',
+          height: '48px',
+          borderRadius: '12px',
+          background: canSwap ? 
+            'linear-gradient(135deg, #ff007a 0%, #ff6b9d 100%)' : 
+            'rgba(255, 255, 255, 0.08)',
           border: 'none',
-          color: '#ffffff',
-          marginBottom: 16,
-          boxShadow: isSwapDisabled ? 'none' : '0 4px 12px rgba(255, 0, 122, 0.3)'
+          fontSize: '14px',
+          fontWeight: 600,
+          boxShadow: canSwap ? '0 4px 16px rgba(255, 0, 122, 0.3)' : 'none',
+          transition: 'all 0.2s ease'
         }}
       >
-        {!isConnected ? '连接钱包' : 
-         !fromToken || !toToken ? '选择代币' :
-         !fromAmount || parseFloat(fromAmount) <= 0 ? '输入数量' :
+        {loading ? '交换中...' : 
+         !fromToken || !toToken ? '请选择代币' :
+         fromToken.symbol === 'ETH' && toToken.symbol === 'ETH' ? '不能交换相同代币' :
+         !fromAmount ? '请输入数量' :
+         parseFloat(fromAmount) <= 0 ? '请输入有效数量' :
+         !expectedOutput ? '获取价格中...' :
          '交换'}
       </Button>
 
-      {/* Price Info */}
-      {fromAmount && toAmount && fromToken && toToken && parseFloat(fromAmount) > 0 && (
-        <div style={{ 
-          marginTop: 0,
-          padding: '16px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          borderRadius: 16,
-          border: '1px solid rgba(255, 255, 255, 0.05)'
-        }}>
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>汇率</Text>
-              <Text style={{ color: '#ffffff', fontWeight: 500, fontSize: '14px' }}>
-                1 {fromToken.symbol} = {formatTokenAmount(parseFloat(toAmount) / parseFloat(fromAmount))} {toToken.symbol}
+      {/* Settings Modal */}
+      <Modal
+        title={
+          <div style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
+            <SettingOutlined style={{ marginRight: 6, fontSize: '12px' }} />
+            交易设置
+          </div>
+        }
+        open={showSettings}
+        onCancel={() => setShowSettings(false)}
+        footer={null}
+        centered
+        width={320}
+        styles={{
+          content: {
+            background: 'rgba(26, 32, 44, 0.98)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '16px',
+            padding: 0,
+          },
+          header: {
+            background: 'transparent',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '12px 16px 8px',
+          }
+        }}
+        zIndex={10000}
+      >
+        <div style={{ padding: '12px 16px 16px' }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8 }}>
+              <Text style={{ color: '#ffffff', fontSize: '12px', fontWeight: 600 }}>
+                滑点容差
               </Text>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>最小接收</Text>
-              <Text style={{ color: '#ffffff', fontWeight: 500, fontSize: '14px' }}>
-                {formatTokenAmount(parseFloat(toAmount) * (100 - slippage) / 100)} {toToken.symbol}
-              </Text>
+
+            <div style={{ 
+              display: 'flex', 
+              gap: '6px', 
+              marginBottom: 10, 
+              flexWrap: 'wrap' 
+            }}>
+              {[0.1, 0.5, 1.0].map((value) => (
+                <Button
+                  key={value}
+                  size="small"
+                  onClick={() => setSlippage(value)}
+                  style={{
+                    flex: 1,
+                    minWidth: '50px',
+                    height: '28px',
+                    borderRadius: '6px',
+                    border: slippage === value ? '1px solid #ff007a' : '1px solid rgba(255, 255, 255, 0.1)',
+                    background: slippage === value ? 'rgba(255, 0, 122, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                    color: slippage === value ? '#ff007a' : '#ffffff',
+                    fontWeight: 500,
+                    fontSize: '11px',
+                  }}
+                >
+                  {value}%
+                </Button>
+              ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>滑点容差</Text>
+
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 10px',
+              background: 'rgba(255, 255, 255, 0.04)',
+              borderRadius: '6px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+            }}>
+              <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '11px' }}>
+                当前滑点容差
+              </Text>
               <Text style={{ 
-                color: getSlippageColor(), 
-                fontWeight: 500, 
-                fontSize: '14px' 
+                color: '#ff007a', 
+                fontSize: '11px', 
+                fontWeight: 600 
               }}>
-                {slippage.toFixed(2)}%
+                {slippage.toFixed(1)}%
               </Text>
             </div>
-          </Space>
+          </div>
+
+          <Button
+            type="primary"
+            onClick={() => setShowSettings(false)}
+            style={{
+              width: '100%',
+              height: '32px',
+              borderRadius: '6px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              border: 'none',
+              fontSize: '12px',
+              fontWeight: 500
+            }}
+          >
+            确认
+          </Button>
         </div>
-      )}
-
-      {/* Chain Info */}
-      <div style={{ marginTop: 16, textAlign: 'center' }}>
-        <Text style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.4)' }}>
-          {chainId === 31337 ? 'Anvil Local Network' :
-           chainId === 11155111 ? 'Anvil Fork Sepolia' :
-           chainId === 1 ? 'Anvil Fork Mainnet' : 
-           `Chain ${chainId}`}
-        </Text>
-      </div>
-
-      <SettingsModal
-        showSettings={showSettings}
-        onCancel={handleCancelSettings}
-        onConfirm={handleConfirmSettings}
-        tempSlippage={tempSlippage}
-        tempCustomSlippage={tempCustomSlippage}
-        tempSlippageWarning={tempSlippageWarning}
-        onTempSlippageChange={handleTempSlippageChange}
-        onTempCustomSlippageChange={handleTempCustomSlippageChange}
-        getTempSlippageColor={getTempSlippageColor}
-        getTempSlippageText={getTempSlippageText}
-      />
-    </div>
+      </Modal>
+    </Card>
   );
 } 

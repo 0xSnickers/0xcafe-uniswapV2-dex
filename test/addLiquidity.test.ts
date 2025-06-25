@@ -36,26 +36,40 @@ describe("UniswapV2 AddLiquidity", function () {
     await tokenA.approve(router.target, amount);
     await tokenB.approve(router.target, amount);
 
+    // Check if pair exists, if not create it
+    let pairAddress = await factory.getPair(tokenA.target, tokenB.target);
+    console.log("Pair address before:", pairAddress);
+    
+    if (pairAddress === "0x0000000000000000000000000000000000000000") {
+      console.log("Creating new pair...");
+      await factory.createPair(tokenA.target, tokenB.target);
+      pairAddress = await factory.getPair(tokenA.target, tokenB.target);
+      console.log("New pair address:", pairAddress);
+    }
+
     // Add liquidity
     const liquidityAmount = ethers.parseEther("100");
+    console.log("Adding liquidity...");
+    
     const tx = await router.addLiquidity(
-      tokenA.target,
-      tokenB.target,
-      liquidityAmount,
-      liquidityAmount,
-      liquidityAmount,
-      liquidityAmount,
-      owner.address,
-      Math.floor(Date.now() / 1000) + 3600
+      tokenA.target, // 代币A地址
+      tokenB.target, // 代币B地址
+      liquidityAmount, // 代币A期望数量
+      liquidityAmount, // 代币B期望数量
+      liquidityAmount * 95n / 100n, // 代币A最小数量 (5% slippage)
+      liquidityAmount * 95n / 100n, // 代币B最小数量 (5% slippage)
+      owner.address, // 接收流动性地址
+      Math.floor(Date.now() / 1000) + 3600 // 交易期限
     );
+
     await tx.wait();
+    console.log("Liquidity added successfully");
 
-    // Get pair address
-    const pairAddress = await factory.getPair(tokenA.target, tokenB.target);
+    // Get pair and check liquidity
     const pair = await ethers.getContractAt("@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol:IUniswapV2Pair", pairAddress);
-
-    // Check liquidity
     const balance = await pair.balanceOf(owner.address);
+    console.log("LP token balance:", balance.toString());
+    
     expect(balance).to.be.gt(0);
   });
 }); 

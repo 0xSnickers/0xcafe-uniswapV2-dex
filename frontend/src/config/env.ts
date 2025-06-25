@@ -1,8 +1,8 @@
 // 环境变量配置管理
 export const ENV = {
   // 应用基本信息
-  APP_NAME: process.env.NEXT_PUBLIC_APP_NAME || '0xcafe DEX',
-  APP_DESCRIPTION: process.env.NEXT_PUBLIC_APP_DESCRIPTION || '现代化去中心化交易所',
+  APP_NAME: process.env.NEXT_PUBLIC_APP_NAME || '0xcafe Dex',
+  APP_DESCRIPTION: process.env.NEXT_PUBLIC_APP_DESCRIPTION || '去中心化交易所',
 
   // RainbowKit 配置
   WALLETCONNECT_PROJECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || 'a49c238ba1b5c99754df1b17f5ec98c4',
