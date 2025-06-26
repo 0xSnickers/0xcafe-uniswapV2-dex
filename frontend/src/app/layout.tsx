@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import '@rainbow-me/rainbowkit/styles.css';
 import { Providers } from './providers';
+import DebugPanel from '@/components/DebugPanel';
 
 export const metadata: Metadata = {
   title: "0xcafe DEX",
@@ -23,6 +24,7 @@ export default function RootLayout({
       >
         <Providers>
           {children}
+          <DebugPanel />
         </Providers>
       </body>
     </html>

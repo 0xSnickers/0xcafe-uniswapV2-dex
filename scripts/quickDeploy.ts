@@ -73,7 +73,7 @@ export function getContractAddresses(chainId: number): ContractAddresses | null 
 
   // 5. 保存部署信息
   const deploymentInfo = {
-    network: "localhost",
+    network: "0.0.0.0",
     chainId: 31337,
     deployer: deployer.address,
     contracts: {

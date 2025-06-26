@@ -5,11 +5,12 @@ export const ENV = {
   APP_DESCRIPTION: process.env.NEXT_PUBLIC_APP_DESCRIPTION || '去中心化交易所',
 
   // RainbowKit 配置
-  WALLETCONNECT_PROJECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || 'a49c238ba1b5c99754df1b17f5ec98c4',
+  WALLETCONNECT_PROJECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || '2c8ff89c9df4e5b30e5892b98d5c67e8',
 
   // 网络配置
   DEFAULT_CHAIN_ID: parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '31337'),
-  ANVIL_RPC_URL: process.env.NEXT_PUBLIC_NETWORK_RPC || 'http://127.0.0.1:8545',
+  // ANVIL_RPC_URL: process.env.NEXT_PUBLIC_NETWORK_RPC || 'http://127.0.0.1:8545',
+  ANVIL_RPC_URL: process.env.NEXT_PUBLIC_NETWORK_RPC || 'http://192.168.5.34:8545',
 
   // 合约地址配置
   CONTRACTS: {

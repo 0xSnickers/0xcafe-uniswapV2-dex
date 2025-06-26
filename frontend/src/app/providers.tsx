@@ -11,6 +11,7 @@ import { anvil } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 import { AntdRegistry } from '@ant-design/nextjs-registry';
+import { http } from 'viem';
 import { ENV } from '@/config/env';
 
 // 检查是否在浏览器环境中
@@ -18,14 +19,29 @@ const isBrowser = typeof window !== 'undefined';
 
 const { wallets } = getDefaultWallets();
 
+// 自定义 Anvil 链配置，使用环境变量中的 RPC URL
+const customAnvil = {
+  ...anvil,
+  rpcUrls: {
+    default: {
+      http: [ENV.ANVIL_RPC_URL],
+    },
+    public: {
+      http: [ENV.ANVIL_RPC_URL],
+    },
+  },
+};
 
 const config = getDefaultConfig({
   appName: ENV.APP_NAME,
   projectId: ENV.WALLETCONNECT_PROJECT_ID,
   wallets,
   chains: [
-    anvil,        // 主要使用 Anvil 本地环境
+    customAnvil,        // 使用自定义的 Anvil 链配置
   ],
+  transports: {
+    [customAnvil.id]: http(ENV.ANVIL_RPC_URL),
+  },
   ssr: true,
 });
 
@@ -171,7 +187,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 overlayBlur: 'small',
               })}
               modalSize="compact"
-              initialChain={anvil}
+              initialChain={customAnvil}
               coolMode={ENV.UI.ENABLE_ANIMATIONS}
             >
               {children}
